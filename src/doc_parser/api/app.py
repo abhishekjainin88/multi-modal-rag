@@ -35,7 +35,7 @@ def create_app() -> FastAPI:
     """Construct and return the FastAPI application."""
     app = FastAPI(
         title="doc-parser RAG API",
-        description="Multimodal RAG pipeline: PDF ingestion, layout detection, hybrid search, and reranking.",
+        description="Multimodal RAG pipeline: PDF ingestion, Layout Detection, hybrid search, and reranking.",
         version="0.1.0",
         lifespan=lifespan,
     )
