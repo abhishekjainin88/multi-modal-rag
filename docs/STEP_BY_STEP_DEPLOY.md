@@ -147,7 +147,7 @@ aws ec2 describe-subnets ^
 ```bash
 export AWS_REGION=us-east-1
 export AWS_ACCOUNT_ID=675253838500
-export ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+export ECR_REGISTRY="%AWS_ACCOUNT_ID%.dkr.ecr.%AWS_REGION%.amazonaws.com"
 export CLUSTER_NAME=doc-parser-cluster
 
 # Replace with your actual IDs from the commands above
@@ -185,9 +185,7 @@ ALB_SG=$(aws ec2 create-security-group \
 echo "ALB SG: $ALB_SG"
 
 # Allow HTTP from internet
-aws ec2 authorize-security-group-ingress \
-  --group-id $ALB_SG \
-  --protocol tcp --port 80 --cidr 0.0.0.0/0
+aws ec2 authorize-security-group-ingress --group-id %ALB_SG% --protocol tcp --port 80 --cidr 0.0.0.0/0
 
 # --- ECS Security Group ---
 ECS_SG=$(aws ec2 create-security-group \
@@ -198,10 +196,10 @@ ECS_SG=$(aws ec2 create-security-group \
 echo "ECS SG: $ECS_SG"
 
 # Allow ALB → ECS on FastAPI port
-aws ec2 authorize-security-group-ingress --group-id $ECS_SG --protocol tcp --port 8000 --source-group $ALB_SG
+aws ec2 authorize-security-group-ingress --group-id %ECS_SG% --protocol tcp --port 8000 --source-group %ALB_SG%
 
 # Allow EFS mount traffic within ECS tasks
-aws ec2 authorize-security-group-ingress --group-id $ECS_SG --protocol tcp --port 2049 --source-group $ECS_SG
+aws ec2 authorize-security-group-ingress --group-id %ECS_SG% --protocol tcp --port 2049 --source-group %ECS_SG%
 ```
 
 > **Save these values** — you will need them in later phases.
@@ -213,13 +211,13 @@ aws ec2 authorize-security-group-ingress --group-id $ECS_SG --protocol tcp --por
 Container images are stored in ECR. One repository for the FastAPI app.
 
 ```bash
-aws ecr create-repository --repository-name doc-parser/app --region $AWS_REGION   --image-scanning-configuration scanOnPush=true
+aws ecr create-repository --repository-name doc-parser/app --region %AWS_REGION%   --image-scanning-configuration scanOnPush=true
 ```
 
 Verify:
 
 ```bash
-aws ecr describe-repositories --query 'repositories[*].repositoryName' --output table  --region $AWS_REGION
+aws ecr describe-repositories --query "repositories[*].repositoryName" --output table  --region %AWS_REGION%
 ```
 
 ---
@@ -227,13 +225,13 @@ aws ecr describe-repositories --query 'repositories[*].repositoryName' --output 
 ## 6. ECS Cluster
 
 ```bash
-aws ecs create-cluster --cluster-name $CLUSTER_NAME --capacity-providers FARGATE FARGATE_SPOT --region $AWS_REGION
+aws ecs create-cluster --cluster-name %CLUSTER_NAME% --capacity-providers FARGATE FARGATE_SPOT --region %AWS_REGION%
 ```
 
 Verify:
 
 ```bash
-aws ecs describe-clusters --clusters $CLUSTER_NAME --query 'clusters[0].{name:clusterName,status:status}' --output table
+aws ecs describe-clusters --clusters %CLUSTER_NAME% --query "clusters[0].{name:clusterName,status:status}" --output table
 ```
 
 ---
@@ -246,24 +244,23 @@ EFS provides two persistent volumes that survive deployments:
 
 ```bash
 # Create the file system
-FS_ID=$(aws efs create-file-system --performance-mode generalPurpose --throughput-mode bursting --region $AWS_REGION --query 'FileSystemId' --output text)
-echo "EFS ID: $FS_ID"
+FS_ID=%(aws efs create-file-system --performance-mode generalPurpose --throughput-mode bursting --region %AWS_REGION% --query 'FileSystemId' --output text)%
+echo "EFS ID: %FS_ID%"
 
 # Wait until available (check lifecycle state)
-aws efs describe-file-systems --file-system-id $FS_ID --query 'FileSystems[0].LifeCycleState' --output text
+aws efs describe-file-systems --file-system-id %FS_ID% --query 'FileSystems[0].LifeCycleState' --output text
 # Wait until output is: available
 
 # Create mount targets — one per subnet (repeat for each subnet in SUBNET_IDS)
 SUBNET1=$(echo $SUBNET_IDS | cut -d',' -f1)
 SUBNET2=$(echo $SUBNET_IDS | cut -d',' -f2)
 
-aws efs create-mount-target --file-system-id $FS_ID --subnet-id $SUBNET1 --security-groups $ECS_SG
+aws efs create-mount-target --file-system-id %FS_ID% --subnet-id %SUBNET1% --security-groups %ECS_SG%
 
-aws efs create-mount-target --file-system-id $FS_ID --subnet-id $SUBNET2 --security-groups $ECS_SG
+aws efs create-mount-target --file-system-id %FS_ID% --subnet-id %SUBNET2% --security-groups %ECS_SG%
 
 # Access point for Qdrant data
-QDRANT_AP=$(aws efs create-access-point --file-system-id $FS_ID --posix-user Uid=1000,Gid=1000 --root-directory "Path=/qdrant,CreationInfo={OwnerUid=1000,OwnerGid=1000,Permissions=755}" --query 'AccessPointId' --output text)
-echo "Qdrant Access Point: $QDRANT_AP"
+for /f %i in ('aws efs create-access-point --file-system-id %FS_ID% --posix-user "Uid=1000,Gid=1000" --root-directory "Path=/qdrant,CreationInfo={OwnerUid=1000,OwnerGid=1000,Permissions=755}" --query "AccessPointId" --output text') do set QDRANT_AP=%i
 
 # Access point for Ollama model weights
 OLLAMA_AP=$(aws efs create-access-point --file-system-id $FS_ID --posix-user Uid=0,Gid=0 --root-directory "Path=/ollama,CreationInfo={OwnerUid=0,OwnerGid=0,Permissions=755}"  --query 'AccessPointId' --output text)
@@ -279,7 +276,7 @@ echo "Ollama Access Point: $OLLAMA_AP"
 Only `OPENAI_API_KEY` is needed. This project uses Ollama locally — no Z.AI API key required.
 
 ```bash
-aws secretsmanager create-secret --name doc-parser/openai-api-key --secret-string '{"OPENAI_API_KEY":"sk-Your key here"}' --region $AWS_REGION
+aws secretsmanager create-secret --name doc-parser/openai-api-key --secret-string "{"OPENAI_API_KEY":"Your ID" --region %AWS_REGION%
 ```
 
 To update the key later:
@@ -583,7 +580,7 @@ cat > /tmp/app-task-def.json << EOF
 }
 EOF
 
-aws ecs register-task-definition  --cli-input-json file://D:\DataScience\Krish\UltimateRag\multi-modal-rag\app-task-def.json --region $AWS_REGION
+aws ecs register-task-definition  --cli-input-json file://D:\DataScience\Krish\UltimateRag\multi-modal-rag\app-task-def.json --region %AWS_REGION%
 ```
 
 ---
@@ -598,7 +595,9 @@ echo "ALB ARN: $ALB_ARN"
 
 or 
 
-aws elbv2 create-load-balancer --name doc-parser-alb --subnets subnet-0672856b0f5020af1 subnet-0ea475437feb22427 --security-groups sg-07ae49dade56ddff5 --scheme internet-facing --type application --query "LoadBalancers[0].LoadBalancerArn" --output text --region us-east-1
+set SUBNET_IDS_SPACE=%SUBNET_IDS:,= %
+
+for /f %i in ('aws elbv2 create-load-balancer --name doc-parser-alb --subnets %SUBNET_IDS_SPACE% --security-groups %ALB_SG% --scheme internet-facing --type application --query "LoadBalancers[0].LoadBalancerArn" --output text') do set ALB_ARN=%i
 
 # Target group for FastAPI app (port 8000)
 APP_TG_ARN=$(aws elbv2 create-target-group   --name doc-parser-app-tg   --protocol HTTP 
@@ -606,24 +605,25 @@ APP_TG_ARN=$(aws elbv2 create-target-group   --name doc-parser-app-tg   --protoc
   --query 'TargetGroups[0].TargetGroupArn' --output text)
 echo "App TG: $APP_TG_ARN"
 
+for /f %i in ('aws elbv2 create-target-group --name doc-parser-app-tg --protocol HTTP --port 8000 --target-type ip --vpc-id  %VPC_ID% --health-check-path /health --query "TargetGroups[0].TargetGroupArn" --output text') do set APP_TG_ARN=%i
+
+echo App TG: %APP_TG_ARN%
+
 # Listener on port 80 — all traffic → FastAPI app
-LISTENER_ARN=$(aws elbv2 create-listener \
-  --load-balancer-arn $ALB_ARN \
-  --protocol HTTP \
-  --port 80 \
-  --default-actions Type=forward,TargetGroupArn=$APP_TG_ARN \
-  --query 'Listeners[0].ListenerArn' --output text)
-echo "Listener: $LISTENER_ARN"
+for /f %i in ('aws elbv2 create-listener --load-balancer-arn %ALB_ARN% --protocol HTTP --port 80 --default-actions Type=forward,TargetGroupArn=%APP_TG_ARN% --query "Listeners[0].ListenerArn" --output text') do set LISTENER_ARN=%i
+
+echo %LISTENER_ARN%
 
 # Increase idle timeout to 300s — default 60s causes 504 on /ingest/file
 # (PDF parsing + captioning + embedding takes 1-3 minutes)
-aws elbv2 modify-load-balancer-attributes --load-balancer-arn $ALB_ARN   --attributes Key=idle_timeout.timeout_seconds,Value=300 --region $AWS_REGION
+aws elbv2 modify-load-balancer-attributes --load-balancer-arn %ALB_ARN%   --attributes Key=idle_timeout.timeout_seconds,Value=300 --region %AWS_REGION%
 
 # Print the public URL
-ALB_DNS=$(aws elbv2 describe-load-balancers \
-  --load-balancer-arns $ALB_ARN \
-  --query 'LoadBalancers[0].DNSName' --output text)
-echo "Public URL: http://${ALB_DNS}"
+for /f %i in ('aws elbv2 describe-load-balancers --load-balancer-arns %ALB_ARN% --query "LoadBalancers[0].DNSName" --output text') do set ALB_DNS=%i
+
+echo %ALB_DNS%
+
+echo "Public URL: http://%ALB_DNS%"
 ```
 
 ---
@@ -635,15 +635,7 @@ echo "Public URL: http://${ALB_DNS}"
 
 ```bash
 # App service (FastAPI + Qdrant + Ollama)
-aws ecs create-service --cluster $CLUSTER_NAME --service-name doc-parser-app
-  --task-definition doc-parser-app --desired-count 1 --launch-type FARGATE 
-  --enable-execute-command --network-configuration "awsvpcConfiguration={
-    subnets=[$(echo $SUBNET_IDS | tr ',' ',')],
-    securityGroups=[$ECS_SG],
-    assignPublicIp=ENABLED
-  }" 
-  --load-balancers "targetGroupArn=$APP_TG_ARN,containerName=app,containerPort=8000" 
-  --region $AWS_REGION
+aws ecs create-service --cluster %CLUSTER_NAME% --service-name doc-parser-app --task-definition doc-parser-app --desired-count 1 --launch-type FARGATE --enable-execute-command --network-configuration "awsvpcConfiguration={subnets=[%SUBNET_IDS%],securityGroups=[%ECS_SG%],assignPublicIp=ENABLED}" --load-balancers "targetGroupArn=%APP_TG_ARN%,containerName=app,containerPort=8000" --region %AWS_REGION%
 ```
 
 Wait for the service to reach a stable state:
