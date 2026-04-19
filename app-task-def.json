@@ -46,7 +46,7 @@
       "secrets": [
         {
           "name": "OPENAI_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:675253838500:secret:doc-parser/openai-api-key:OPENAI_API_KEY::"
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:675253838500:secret:doc-parser/openai-api-key:OPENAI_API_KEY"
         }
       ],
       "logConfiguration": {
